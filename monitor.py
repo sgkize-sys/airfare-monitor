@@ -20,6 +20,21 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
+# Matches each flight block in Google Flights page text:
+#   departure_time \n arrow_line \n arrival_time \n airline \n duration \n route \n stops \n ... \n $price
+FLIGHT_RE = re.compile(
+    r'(\d{1,2}:\d{2} ?[AP]M)\n'          # departure time
+    r'.+?\n'                               # separator (arrow character)
+    r'(\d{1,2}:\d{2} ?[AP]M[^\n]*)\n'    # arrival time + optional +1
+    r'([^\n]+)\n'                          # airline(s)
+    r'[^\n]+\n'                            # duration
+    r'[^\n]+\n'                            # route
+    r'(\d+ stops?|Nonstop)\n'              # stops
+    r'(?:[^\n]+\n){0,6}'                   # optional: layovers, CO2, emissions
+    r'\$(\d[\d,]*)',                       # price
+    re.IGNORECASE,
+)
+
 
 def load_config():
     with open(CONFIG_FILE) as f:
@@ -29,22 +44,18 @@ def load_config():
 def build_search_url(itinerary: dict) -> str:
     dep = itinerary["departure_airport"]
     arr = itinerary["arrival_airport"]
-    out = itinerary["outbound_date"]  # YYYY-MM-DD
+    out = itinerary["outbound_date"]
     ret = itinerary.get("return_date")
 
-    # Format dates as "Month D, YYYY" for the query string
-    out_dt = datetime.strptime(out, "%Y-%m-%d")
-    out_str = out_dt.strftime("%B %d, %Y").replace(" 0", " ").replace(",0", ",")
+    out_str = datetime.strptime(out, "%Y-%m-%d").strftime("%B %d, %Y").replace(" 0", " ")
 
     if ret:
-        ret_dt = datetime.strptime(ret, "%Y-%m-%d")
-        ret_str = ret_dt.strftime("%B %d, %Y").replace(" 0", " ")
+        ret_str = datetime.strptime(ret, "%Y-%m-%d").strftime("%B %d, %Y").replace(" 0", " ")
         query = f"flights from {dep} to {arr} on {out_str} returning {ret_str}"
     else:
         query = f"one way flights from {dep} to {arr} on {out_str}"
 
-    encoded = query.replace(" ", "+")
-    return f"https://www.google.com/travel/flights?q={encoded}&hl=en&curr=USD"
+    return f"https://www.google.com/travel/flights?q={query.replace(' ', '+')}&hl=en&curr=USD"
 
 
 def dismiss_consent(page):
@@ -59,60 +70,35 @@ def dismiss_consent(page):
             pass
 
 
-def stop_count(label: str) -> int | None:
-    """Parse number of stops from a Google Flights aria-label. Returns None if unknown."""
-    lower = label.lower()
-    if "nonstop" in lower:
-        return 0
-    m = re.search(r"(\d+)\s+stop", lower)
-    if m:
-        return int(m.group(1))
-    return None
-
-
-def extract_prices(page, max_connections: int = 1) -> list[int]:
-    prices = []
-    filtered_prices = []
-    found_stop_info = False
-
-    for el in page.query_selector_all("[aria-label]"):
-        label = el.get_attribute("aria-label") or ""
-        stops = stop_count(label)
-        has_price = bool(re.search(r"\$(\d[\d,]*)", label))
-
-        if not has_price:
+def parse_flights(body: str, max_connections: int = 1) -> list[dict]:
+    flights = []
+    for m in FLIGHT_RE.finditer(body):
+        dep_time, _arr, airline, stops_str, price_str = m.groups()
+        price = int(price_str.replace(",", ""))
+        if not (50 < price < 15000):
             continue
 
-        for match in re.finditer(r"\$(\d[\d,]*)", label):
-            val = int(match.group(1).replace(",", ""))
-            if not (50 < val < 15000):
-                continue
-            prices.append(val)
-            if stops is not None:
-                found_stop_info = True
-                if stops <= max_connections:
-                    filtered_prices.append(val)
+        if stops_str.lower() == "nonstop":
+            stops = 0
+        else:
+            stops = int(re.search(r"\d+", stops_str).group())
 
-    # If we successfully matched stop counts, return filtered list
-    if found_stop_info:
-        return filtered_prices
+        if stops > max_connections:
+            continue
 
-    # Fallback: no stop info found — return all prices without filtering
-    if prices:
-        return prices
-
-    # Last resort: scan raw body text
-    for match in re.finditer(r"\$(\d[\d,]+)", page.inner_text("body")):
-        val = int(match.group(1).replace(",", ""))
-        if 50 < val < 15000:
-            prices.append(val)
-
-    return prices
+        flights.append({
+            "price": price,
+            "airline": airline.strip(),
+            "dep_time": dep_time.strip().upper().replace(" ", ""),
+            "stops": stops,
+        })
+    return flights
 
 
-def scrape_price(itinerary: dict) -> float | None:
+def scrape_best_flight(itinerary: dict) -> dict | None:
     name = itinerary["name"]
     url = build_search_url(itinerary)
+    max_conn = int(itinerary.get("max_connections", 1))
 
     with sync_playwright() as p:
         browser = p.chromium.launch(channel="msedge", headless=True)
@@ -128,34 +114,22 @@ def scrape_price(itinerary: dict) -> float | None:
         page = context.new_page()
 
         try:
-            log.debug(f"[{name}] Fetching: {url}")
             page.goto(url, timeout=30000)
             page.wait_for_load_state("domcontentloaded")
-
             dismiss_consent(page)
 
-            # Wait for flight prices to appear
-            try:
-                page.wait_for_selector(
-                    '[aria-label*="dollar"], [aria-label*="round trip"], [aria-label*="one way"]',
-                    timeout=20000,
-                )
-            except PlaywrightTimeout:
-                # Fall back — wait for any dollar sign in visible text
-                page.wait_for_function(
-                    "document.body.innerText.includes('$')",
-                    timeout=15000,
-                )
+            page.wait_for_function(
+                "document.body.innerText.includes('$')",
+                timeout=20000,
+            )
+            time.sleep(2)
 
-            time.sleep(2)  # let dynamic content settle
-
-            max_conn = int(itinerary.get("max_connections", 1))
-            prices = extract_prices(page, max_connections=max_conn)
-            if not prices:
-                log.warning(f"[{name}] No prices found — Google may have blocked the request")
+            flights = parse_flights(page.inner_text("body"), max_connections=max_conn)
+            if not flights:
+                log.warning(f"[{name}] No qualifying flights found")
                 return None
 
-            return float(min(prices))
+            return min(flights, key=lambda f: f["price"])
 
         except PlaywrightTimeout:
             log.error(f"[{name}] Timed out waiting for results")
@@ -171,13 +145,17 @@ def check_all(config: dict):
     for itinerary in config["itineraries"]:
         name = itinerary["name"]
         threshold = itinerary.get("alert_threshold")
-        price = scrape_price(itinerary)
+        flight = scrape_best_flight(itinerary)
 
-        if price is None:
+        if flight is None:
             log.info(f"[{name}] Price unavailable this check")
             continue
 
-        msg = f"[{name}] ${price:.0f}"
+        price = flight["price"]
+        airline = flight["airline"]
+        dep_time = flight["dep_time"]
+
+        msg = f"[{name}] ${price} | {airline} | {dep_time}"
         if threshold and price <= threshold:
             msg += f"  *** BELOW THRESHOLD (${threshold}) ***"
         log.info(msg)
@@ -187,7 +165,7 @@ def main():
     config = load_config()
     interval_hours = config.get("check_interval_hours", 6)
 
-    log.info(f"Airfare monitor started — checking every {interval_hours}h")
+    log.info(f"Airfare monitor started -- checking every {interval_hours}h")
     log.info(f"Watching {len(config['itineraries'])} itinerary/itineraries")
     log.info(f"Logging to: {LOG_FILE}")
 
