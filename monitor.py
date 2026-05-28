@@ -30,7 +30,7 @@ FLIGHT_RE = re.compile(
     r'[^\n]+\n'                            # duration
     r'[^\n]+\n'                            # route
     r'(\d+ stops?|Nonstop)\n'              # stops
-    r'(?:[^\n]+\n){0,6}'                   # optional: layovers, CO2, emissions
+    r'((?:[^\n]+\n){0,6})'                 # optional lines: layovers, CO2, fare class
     r'\$(\d[\d,]*)',                       # price
     re.IGNORECASE,
 )
@@ -73,7 +73,11 @@ def dismiss_consent(page):
 def parse_flights(body: str, max_connections: int = 1) -> list[dict]:
     flights = []
     for m in FLIGHT_RE.finditer(body):
-        dep_time, _arr, airline, stops_str, price_str = m.groups()
+        dep_time, _arr, airline, stops_str, middle, price_str = m.groups()
+
+        if "basic economy" in middle.lower():
+            continue
+
         price = int(price_str.replace(",", ""))
         if not (50 < price < 15000):
             continue
