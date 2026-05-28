@@ -8,6 +8,7 @@
       "return_date": "2026-07-11",
       "trip_type": "round_trip",
       "currency": "USD",
+      "max_connections": 1,
       "alert_threshold": 300
     }
   ],

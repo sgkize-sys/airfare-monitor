@@ -59,23 +59,53 @@ def dismiss_consent(page):
             pass
 
 
-def extract_prices(page) -> list[int]:
-    prices = []
+def stop_count(label: str) -> int | None:
+    """Parse number of stops from a Google Flights aria-label. Returns None if unknown."""
+    lower = label.lower()
+    if "nonstop" in lower:
+        return 0
+    m = re.search(r"(\d+)\s+stop", lower)
+    if m:
+        return int(m.group(1))
+    return None
 
-    # Strategy 1: aria-labels on cards (stable across layout changes)
+
+def extract_prices(page, max_connections: int = 1) -> list[int]:
+    prices = []
+    filtered_prices = []
+    found_stop_info = False
+
     for el in page.query_selector_all("[aria-label]"):
         label = el.get_attribute("aria-label") or ""
+        stops = stop_count(label)
+        has_price = bool(re.search(r"\$(\d[\d,]*)", label))
+
+        if not has_price:
+            continue
+
         for match in re.finditer(r"\$(\d[\d,]*)", label):
             val = int(match.group(1).replace(",", ""))
-            if 50 < val < 15000:
-                prices.append(val)
+            if not (50 < val < 15000):
+                continue
+            prices.append(val)
+            if stops is not None:
+                found_stop_info = True
+                if stops <= max_connections:
+                    filtered_prices.append(val)
 
-    # Strategy 2: visible dollar amounts in body text
-    if not prices:
-        for match in re.finditer(r"\$(\d[\d,]+)", page.inner_text("body")):
-            val = int(match.group(1).replace(",", ""))
-            if 50 < val < 15000:
-                prices.append(val)
+    # If we successfully matched stop counts, return filtered list
+    if found_stop_info:
+        return filtered_prices
+
+    # Fallback: no stop info found — return all prices without filtering
+    if prices:
+        return prices
+
+    # Last resort: scan raw body text
+    for match in re.finditer(r"\$(\d[\d,]+)", page.inner_text("body")):
+        val = int(match.group(1).replace(",", ""))
+        if 50 < val < 15000:
+            prices.append(val)
 
     return prices
 
@@ -119,7 +149,8 @@ def scrape_price(itinerary: dict) -> float | None:
 
             time.sleep(2)  # let dynamic content settle
 
-            prices = extract_prices(page)
+            max_conn = itinerary.get("max_connections", 1)
+            prices = extract_prices(page, max_connections=max_conn)
             if not prices:
                 log.warning(f"[{name}] No prices found — Google may have blocked the request")
                 return None
