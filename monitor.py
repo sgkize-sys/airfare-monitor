@@ -149,7 +149,7 @@ def scrape_price(itinerary: dict) -> float | None:
 
             time.sleep(2)  # let dynamic content settle
 
-            max_conn = itinerary.get("max_connections", 1)
+            max_conn = int(itinerary.get("max_connections", 1))
             prices = extract_prices(page, max_connections=max_conn)
             if not prices:
                 log.warning(f"[{name}] No prices found — Google may have blocked the request")
