@@ -1,0 +1,15 @@
+{
+  "itineraries": [
+    {
+      "name": "NYC to LAX round trip",
+      "departure_airport": "JFK",
+      "arrival_airport": "LAX",
+      "outbound_date": "2026-07-04",
+      "return_date": "2026-07-11",
+      "trip_type": "round_trip",
+      "currency": "USD",
+      "alert_threshold": 300
+    }
+  ],
+  "check_interval_hours": 6
+}
