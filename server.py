@@ -6,7 +6,7 @@ from flask import Flask, render_template_string
 app = Flask(__name__)
 LOG_FILE = Path(__file__).parent / "prices.log"
 
-ENTRY_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s+\[(.+?)\]\s+\$(\d+)(.*)")
+ENTRY_RE = re.compile(r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2})\s+\[(.+?)\]\s+\$(\d+)\s*\|\s*(.+?)\s*\|\s*(.+?)\s*\|\s*(.+?)(\s+\*\*\*.*)?$")
 
 TEMPLATE = """
 <!DOCTYPE html>
@@ -97,13 +97,16 @@ TEMPLATE = """
           {% if entries %}
           <table>
             <thead>
-              <tr><th>Time</th><th>Price</th><th>Status</th></tr>
+              <tr><th>Checked</th><th>Price</th><th>Airline</th><th>Departs</th><th>Stops</th><th>Status</th></tr>
             </thead>
             <tbody>
               {% for entry in entries | reverse %}
               <tr {% if loop.first %}class="latest"{% endif %}>
                 <td>{{ entry.timestamp }}</td>
                 <td class="price">${{ entry.price }}</td>
+                <td>{{ entry.get("airline", "—") }}</td>
+                <td>{{ entry.get("dep_time", "—") }}</td>
+                <td>{{ entry.get("stops", "—") }}</td>
                 <td {% if entry.alert %}class="below"{% endif %}>
                   {{ "✓ Below threshold" if entry.alert else "—" }}
                 </td>
@@ -131,11 +134,14 @@ def parse_log() -> dict:
         for line in f:
             m = ENTRY_RE.match(line.strip())
             if m:
-                ts, name, price, rest = m.groups()
+                ts, name, price, airline, dep_time, stops, alert_flag = m.groups()
                 history[name].append({
                     "timestamp": ts,
                     "price": int(price),
-                    "alert": "BELOW THRESHOLD" in rest,
+                    "airline": airline.strip(),
+                    "dep_time": dep_time.strip(),
+                    "stops": stops.strip(),
+                    "alert": bool(alert_flag),
                 })
     return history
 

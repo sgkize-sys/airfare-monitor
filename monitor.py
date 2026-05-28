@@ -99,7 +99,7 @@ def parse_flights(body: str, max_connections: int = 1) -> list[dict]:
     return flights
 
 
-def scrape_best_flight(itinerary: dict) -> dict | None:
+def scrape_flights(itinerary: dict) -> list[dict]:
     name = itinerary["name"]
     url = build_search_url(itinerary)
     max_conn = int(itinerary.get("max_connections", 1))
@@ -131,16 +131,14 @@ def scrape_best_flight(itinerary: dict) -> dict | None:
             flights = parse_flights(page.inner_text("body"), max_connections=max_conn)
             if not flights:
                 log.warning(f"[{name}] No qualifying flights found")
-                return None
-
-            return min(flights, key=lambda f: f["price"])
+            return sorted(flights, key=lambda f: f["price"])
 
         except PlaywrightTimeout:
             log.error(f"[{name}] Timed out waiting for results")
-            return None
+            return []
         except Exception as e:
             log.error(f"[{name}] Error: {e}")
-            return None
+            return []
         finally:
             browser.close()
 
@@ -149,20 +147,23 @@ def check_all(config: dict):
     for itinerary in config["itineraries"]:
         name = itinerary["name"]
         threshold = itinerary.get("alert_threshold")
-        flight = scrape_best_flight(itinerary)
+        flights = scrape_flights(itinerary)
 
-        if flight is None:
+        if not flights:
             log.info(f"[{name}] Price unavailable this check")
             continue
 
-        price = flight["price"]
-        airline = flight["airline"]
-        dep_time = flight["dep_time"]
+        stops_label = {0: "Nonstop", 1: "1 stop", 2: "2 stops", 3: "3 stops"}
+        for flight in flights:
+            price = flight["price"]
+            airline = flight["airline"]
+            dep_time = flight["dep_time"]
+            stops = stops_label.get(flight["stops"], f"{flight['stops']} stops")
 
-        msg = f"[{name}] ${price} | {airline} | {dep_time}"
-        if threshold and price <= threshold:
-            msg += f"  *** BELOW THRESHOLD (${threshold}) ***"
-        log.info(msg)
+            msg = f"[{name}] ${price} | {airline} | {dep_time} | {stops}"
+            if threshold and price <= threshold:
+                msg += f"  *** BELOW THRESHOLD (${threshold}) ***"
+            log.info(msg)
 
 
 def main():
