@@ -75,7 +75,12 @@ TEMPLATE = """
   <div class="container">
     <header>
       <h1>Airfare Monitor</h1>
-      <p>Auto-refreshes every 5 minutes &mdash; {{ log_path }}</p>
+      <p>
+        {% if last_updated %}
+          Last updated: <strong>{{ last_updated }}</strong> &mdash;
+        {% endif %}
+        Auto-refreshes every 5 minutes
+      </p>
     </header>
 
     {% if not history %}
@@ -126,10 +131,11 @@ TEMPLATE = """
 """
 
 
-def parse_log() -> dict:
+def parse_log() -> tuple[dict, str | None]:
     history = defaultdict(list)
+    last_updated = None
     if not LOG_FILE.exists():
-        return history
+        return history, last_updated
     with open(LOG_FILE, encoding="utf-8", errors="replace") as f:
         for line in f:
             m = ENTRY_RE.match(line.strip())
@@ -143,13 +149,14 @@ def parse_log() -> dict:
                     "stops": stops.strip(),
                     "alert": bool(alert_flag),
                 })
-    return history
+                last_updated = ts
+    return history, last_updated
 
 
 @app.route("/")
 def index():
-    history = parse_log()
-    return render_template_string(TEMPLATE, history=history, log_path=str(LOG_FILE))
+    history, last_updated = parse_log()
+    return render_template_string(TEMPLATE, history=history, last_updated=last_updated)
 
 
 if __name__ == "__main__":
