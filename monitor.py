@@ -79,7 +79,7 @@ def to_minutes(time_str: str) -> int:
         return 0
 
 
-def parse_flights(body: str, max_connections: int = 1, depart_after: str | None = None) -> list[dict]:
+def parse_flights(body: str, max_connections: int = 1, depart_after: str | None = None, max_price: int | None = None) -> list[dict]:
     depart_after_mins = None
     if depart_after:
         h, m = depart_after.split(":")
@@ -94,6 +94,9 @@ def parse_flights(body: str, max_connections: int = 1, depart_after: str | None 
 
         price = int(price_str.replace(",", ""))
         if not (50 < price < 15000):
+            continue
+
+        if max_price is not None and price > max_price:
             continue
 
         if stops_str.lower() == "nonstop":
@@ -149,7 +152,8 @@ def scrape_flights(itinerary: dict) -> list[dict]:
             time.sleep(2)
 
             depart_after = itinerary.get("depart_after")
-            flights = parse_flights(page.inner_text("body"), max_connections=max_conn, depart_after=depart_after)
+            max_price = itinerary.get("max_price")
+            flights = parse_flights(page.inner_text("body"), max_connections=max_conn, depart_after=depart_after, max_price=max_price)
             if not flights:
                 log.warning(f"[{name}] No qualifying flights found")
             return sorted(flights, key=lambda f: f["price"])
