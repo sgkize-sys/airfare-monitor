@@ -1,15 +1,31 @@
 {
   "itineraries": [
     {
-      "name": "NYC to LAX round trip",
-      "departure_airport": "JFK",
-      "arrival_airport": "LAX",
-      "outbound_date": "2026-07-04",
-      "return_date": "2026-07-11",
-      "trip_type": "round_trip",
-      "currency": "USD",
+      "name": "DPS to CDG",
+      "departure_airport": "DPS",
+      "arrival_airport": "CDG",
+      "outbound_date": "2026-10-01",
       "max_connections": 1,
-      "alert_threshold": 300
+      "depart_after": "13:00",
+      "alert_threshold": 750
+    },
+    {
+      "name": "DPS to AMS",
+      "departure_airport": "DPS",
+      "arrival_airport": "AMS",
+      "outbound_date": "2026-10-01",
+      "max_connections": 1,
+      "depart_after": "13:00",
+      "alert_threshold": 750
+    },
+    {
+      "name": "DPS to LHR",
+      "departure_airport": "DPS",
+      "arrival_airport": "LHR",
+      "outbound_date": "2026-10-01",
+      "max_connections": 1,
+      "depart_after": "13:00",
+      "alert_threshold": 750
     }
   ],
   "check_interval_hours": 6

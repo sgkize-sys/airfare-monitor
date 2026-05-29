@@ -70,7 +70,21 @@ def dismiss_consent(page):
             pass
 
 
-def parse_flights(body: str, max_connections: int = 1) -> list[dict]:
+def to_minutes(time_str: str) -> int:
+    """Convert '1:05PM' or '9:55AM' to minutes since midnight."""
+    try:
+        t = datetime.strptime(time_str.strip().replace(" ", ""), "%I:%M%p")
+        return t.hour * 60 + t.minute
+    except ValueError:
+        return 0
+
+
+def parse_flights(body: str, max_connections: int = 1, depart_after: str | None = None) -> list[dict]:
+    depart_after_mins = None
+    if depart_after:
+        h, m = depart_after.split(":")
+        depart_after_mins = int(h) * 60 + int(m)
+
     flights = []
     for m in FLIGHT_RE.finditer(body):
         dep_time, arr_time, airline, stops_str, middle, price_str = m.groups()
@@ -91,10 +105,14 @@ def parse_flights(body: str, max_connections: int = 1) -> list[dict]:
         if stops > max_connections and not sole_singapore:
             continue
 
+        dep_time_clean = dep_time.strip().upper().replace(" ", "")
+        if depart_after_mins is not None and to_minutes(dep_time_clean) <= depart_after_mins:
+            continue
+
         flights.append({
             "price": price,
             "airline": airline.strip(),
-            "dep_time": dep_time.strip().upper().replace(" ", ""),
+            "dep_time": dep_time_clean,
             "arr_time": arr_time.strip().upper().replace(" ", ""),
             "stops": stops,
         })
@@ -130,7 +148,8 @@ def scrape_flights(itinerary: dict) -> list[dict]:
             )
             time.sleep(2)
 
-            flights = parse_flights(page.inner_text("body"), max_connections=max_conn)
+            depart_after = itinerary.get("depart_after")
+            flights = parse_flights(page.inner_text("body"), max_connections=max_conn, depart_after=depart_after)
             if not flights:
                 log.warning(f"[{name}] No qualifying flights found")
             return sorted(flights, key=lambda f: f["price"])
