@@ -87,7 +87,8 @@ def parse_flights(body: str, max_connections: int = 1) -> list[dict]:
         else:
             stops = int(re.search(r"\d+", stops_str).group())
 
-        if stops > max_connections:
+        sole_singapore = airline.strip().lower() == "singapore airlines"
+        if stops > max_connections and not sole_singapore:
             continue
 
         flights.append({
