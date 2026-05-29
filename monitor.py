@@ -73,7 +73,7 @@ def dismiss_consent(page):
 def parse_flights(body: str, max_connections: int = 1) -> list[dict]:
     flights = []
     for m in FLIGHT_RE.finditer(body):
-        dep_time, _arr, airline, stops_str, middle, price_str = m.groups()
+        dep_time, arr_time, airline, stops_str, middle, price_str = m.groups()
 
         if "basic economy" in middle.lower():
             continue
@@ -94,6 +94,7 @@ def parse_flights(body: str, max_connections: int = 1) -> list[dict]:
             "price": price,
             "airline": airline.strip(),
             "dep_time": dep_time.strip().upper().replace(" ", ""),
+            "arr_time": arr_time.strip().upper().replace(" ", ""),
             "stops": stops,
         })
     return flights
@@ -158,9 +159,10 @@ def check_all(config: dict):
             price = flight["price"]
             airline = flight["airline"]
             dep_time = flight["dep_time"]
+            arr_time = flight["arr_time"]
             stops = stops_label.get(flight["stops"], f"{flight['stops']} stops")
 
-            msg = f"[{name}] ${price} | {airline} | {dep_time} | {stops}"
+            msg = f"[{name}] ${price} | {airline} | {dep_time} | {arr_time} | {stops}"
             if threshold and price <= threshold:
                 msg += f"  *** BELOW THRESHOLD (${threshold}) ***"
             log.info(msg)
